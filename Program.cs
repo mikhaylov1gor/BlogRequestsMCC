@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 class Program
@@ -17,13 +18,18 @@ class Program
         InitializeData(context);
 
         Console.WriteLine("All posts:");
-        var data = context.BlogPosts.Select(x => x.Title).ToList();
+        var data = context.BlogPosts
+            .AsNoTracking()
+            .Select(x => x.Title)
+            .ToList();
+
         Console.WriteLine(JsonSerializer.Serialize(data));
 
 
         Console.WriteLine("How many comments each user left:");
 
         var NumberOfCommentsPerUser = context.BlogComments
+            .AsNoTracking()
             .GroupBy(c => c.UserName)
             .Select(group => new { name = group.Key, count = group.Count() })
             .ToList();
@@ -37,13 +43,21 @@ class Program
         Console.WriteLine("Posts ordered by date of last comment. Result should include text of last comment:");
 
         var PostsOrderedByLastCommentDate = context.BlogPosts
+            .AsNoTracking()
+            .Where(p => p.Comments.Any())
             .Select(p => new
             {
                 post = p.Title,
-                date = p.Comments.OrderByDescending(c => c.CreatedDate).First().CreatedDate,
-                text = p.Comments.OrderByDescending(c => c.CreatedDate).First().Text,
+                lastComment = p.Comments
+                    .OrderByDescending(c => c.CreatedDate)
+                    .Select(l => new
+                    {
+                        date = l.CreatedDate,
+                        text = l.Text
+                    })
+                    .FirstOrDefault(),
             })
-            .OrderByDescending(p => p.date)
+            .OrderByDescending(p => p.lastComment.date)
             .ToList();
 
         //ToDo: write a query and dump the data to console
@@ -56,11 +70,12 @@ class Program
         Console.WriteLine("How many last comments each user left:");
 
         var NumberOfLastCommentsLeftByUser = context.BlogPosts
-            .Select(p => new
-            {
-                user = p.Comments.OrderByDescending(c => c.CreatedDate).First().UserName,
-            })
-            .GroupBy(p => p.user)
+            .AsNoTracking()
+            .Where(p => p.Comments.Any())
+            .Select(p => p.Comments
+                .OrderByDescending(c => c.CreatedDate)
+                .FirstOrDefault().UserName)
+            .GroupBy(user => user)
             .Select(group => new { name = group.Key, count = group.Count() })
             .ToList();
 
@@ -71,11 +86,23 @@ class Program
         // Petr: 1
 
 
-        Console.WriteLine(JsonSerializer.Serialize(NumberOfCommentsPerUser));
+        Console.WriteLine("How many comments each user left:");
+        foreach (var entry in NumberOfCommentsPerUser)
+        {
+            Console.WriteLine($"{entry.name}: {entry.count}");
+        }
 
-        Console.WriteLine(JsonSerializer.Serialize(PostsOrderedByLastCommentDate));
+        Console.WriteLine("\nPosts ordered by date of last comment. Result should include text of last comment:");
+        foreach (var entry in PostsOrderedByLastCommentDate)
+        {
+            Console.WriteLine($"{entry.post}: '{entry.lastComment.date:yyyy-MM-dd}', '{entry.lastComment.text}'");
+        }
 
-        Console.WriteLine(JsonSerializer.Serialize(NumberOfLastCommentsLeftByUser));
+        Console.WriteLine("\nHow many last comments each user left:");
+        foreach (var entry in NumberOfLastCommentsLeftByUser)
+        {
+            Console.WriteLine($"{entry.name}: {entry.count}");
+        }
 
     }
 
@@ -106,6 +133,13 @@ class Program
                 new BlogComment("6", new DateTime(2020, 2, 9), "Elena"),
                 new BlogComment("7", new DateTime(2020, 2, 10), "Ivan"),
                 new BlogComment("9", new DateTime(2020, 2, 14), "Petr"),
+            }
+        });
+        context.BlogPosts.Add(new BlogPost("Post4")
+        {
+            Comments = new List<BlogComment>()
+            {
+
             }
         });
         context.SaveChanges();
